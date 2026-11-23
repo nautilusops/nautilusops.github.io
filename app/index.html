@@ -1,0 +1,796 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<title>Nautilus: мини-приложение переезда</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<script>document.documentElement.classList.add('boot')</script>
+<style>
+/* Экраны-слайды для телефона: один экран = высота окна, свайп листает по экранам (scroll-snap),
+   кейсы — карусель вбок. На широком экране — рамка телефона 390×844 с тем же листанием.
+   Тёмная тема по умолчанию (как лендинг В), светлая — для светлой темы Telegram. */
+:root{
+  --bg:#07080B; --surface:#0E1115; --surface-2:#141921; --line:#222831;
+  --ink:#EDEDF0; --mute:#9AA3AE; --faint:#5F6873;
+  --accent:#34D399; --accent-ink:#04140D; --accent-soft:rgba(52,211,153,.12);
+  --warn:#F59E0B; --warn-soft:rgba(245,158,11,.12); --down:#F87171;
+  --f-ui:"Onest",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+  --r:14px;
+  --app-h:100dvh; /* в Telegram подменяется на viewportStableHeight */
+  color-scheme:dark;
+}
+@media (prefers-color-scheme: light){
+  :root:not([data-theme="dark"]){
+    --bg:#F3F5F6; --surface:#FFFFFF; --surface-2:#F7F9FA; --line:#DDE2E6;
+    --ink:#0F1418; --mute:#56606B; --faint:#8A939D;
+    --accent:#0E9F6E; --accent-ink:#FFFFFF; --accent-soft:rgba(14,159,110,.10);
+    --warn:#B45309; --warn-soft:rgba(180,83,9,.10); --down:#DC2626;
+    color-scheme:light;
+  }
+}
+:root[data-theme="light"]{
+  --bg:#F3F5F6; --surface:#FFFFFF; --surface-2:#F7F9FA; --line:#DDE2E6;
+  --ink:#0F1418; --mute:#56606B; --faint:#8A939D;
+  --accent:#0E9F6E; --accent-ink:#FFFFFF; --accent-soft:rgba(14,159,110,.10);
+  --warn:#B45309; --warn-soft:rgba(180,83,9,.10); --down:#DC2626;
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:400 16px/1.5 var(--f-ui);-webkit-font-smoothing:antialiased;overflow:hidden}
+h1,h2,h3,p,ul,ol{margin:0}
+ul,ol{padding:0;list-style:none}
+button{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+
+/* служебная полоса — не часть приложения, в Telegram скрыта */
+.svc{font:500 11.5px/1.3 var(--f-mono);color:var(--faint);text-align:center;padding:8px 16px}
+
+/* рамка и прокрутчик */
+.frame{position:relative;margin:0 auto;width:100%;max-width:440px;height:var(--app-h);transition:opacity .2s ease}
+.boot .frame{opacity:0}
+/* своя заставка на время ожидания шрифта и высоты: «N.» той же формы, что иконка в BotFather; видна, только если ждём дольше 0,15 с */
+.splash{position:fixed;inset:0;display:grid;place-items:center;background:var(--bg);opacity:0;visibility:hidden;pointer-events:none;z-index:60;transition:opacity .2s ease,visibility 0s linear .2s}
+.boot .splash{opacity:1;visibility:visible;transition:opacity .25s ease .15s,visibility 0s}
+.splash svg{width:72px;height:72px;fill:var(--faint);animation:spl 1.4s ease-in-out infinite}
+.splash svg circle{fill:var(--accent)}
+@keyframes spl{0%,100%{opacity:.55}50%{opacity:1}}
+@media (prefers-reduced-motion: reduce){ .splash svg{animation:none} }
+.ready .frame{transition:opacity .2s ease,height .2s ease} /* до шрифта и высоты от Telegram экран не показываем — без прыжка после загрузки */
+.has-svc .frame{height:calc(var(--app-h) - 33px)}
+.app{height:100%;overflow-y:auto;scroll-snap-type:y mandatory;overscroll-behavior:contain;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+.app::-webkit-scrollbar{display:none}
+@media (min-width:520px){
+  body{display:flex;flex-direction:column;align-items:center}
+  .frame,.has-svc .frame{width:390px;height:min(844px,calc(100vh - 60px));border:1px solid var(--line);border-radius:32px;overflow:hidden;box-shadow:0 30px 80px -40px rgba(0,0,0,.6);margin-top:6px}
+}
+
+/* экран */
+.scr{min-height:100%;scroll-snap-align:start;scroll-snap-stop:always;display:flex;flex-direction:column;gap:clamp(10px,2vh,18px);
+  padding:calc(clamp(18px,3.4vh,30px) + env(safe-area-inset-top,0px)) 20px calc(clamp(16px,3vh,26px) + env(safe-area-inset-bottom,0px))}
+.scr > .btn{margin-top:auto}
+.eyebrow{font:600 11.5px/1 var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+.h2{font-weight:700;font-size:clamp(22px,3.3vh,27px);line-height:1.15;letter-spacing:-.02em;text-wrap:balance}
+
+/* точки страниц */
+.dots{position:absolute;right:7px;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;gap:7px;z-index:2;pointer-events:none}
+.dots i{width:5px;height:5px;border-radius:50%;background:var(--line);transition:background .2s,transform .2s}
+.dots i.on{background:var(--accent);transform:scale(1.35)}
+
+/* кнопки */
+.btn{appearance:none;border:0;width:100%;min-height:52px;flex:none;border-radius:12px;background:var(--accent);color:var(--accent-ink);font-weight:600;font-size:16.5px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;transition:filter .15s,transform .15s}
+.btn:active{transform:scale(.985)}
+.btn:hover{filter:brightness(1.06)}
+
+/* 1 · hero */
+.top{display:flex;align-items:center;justify-content:space-between}
+.logo{font-weight:700;font-size:17px;letter-spacing:-.01em}
+.logo span{color:var(--accent)}
+.tg{font:500 12px/1 var(--f-mono);color:var(--faint)} /* «DevOps Team» — в имени бота, его Telegram показывает в шапке мини-приложения */
+.h1{font-weight:700;font-size:clamp(29px,4.6vh,38px);line-height:1.05;letter-spacing:-.03em;text-wrap:balance}
+.h1 em{font-style:normal;color:var(--accent)}
+.sub{color:var(--mute);font-size:clamp(14.5px,2vh,16px);line-height:1.45}
+.pts{display:flex;flex-direction:column;gap:clamp(6px,1.2vh,10px)}
+.pts li{display:grid;grid-template-columns:20px 1fr;gap:10px;font-size:clamp(14px,1.9vh,15px);line-height:1.4}
+.pts li::before{content:"";width:8px;height:8px;margin:6px 0 0 4px;border-radius:2px;background:var(--accent)}
+.more{font:500 11.5px/1 var(--f-mono);color:var(--faint);text-align:center;margin-top:-4px}
+.more::after{content:" ↓"}
+
+/* схема переключения */
+.fo{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:10px 8px 8px;flex:1 1 auto;min-height:120px;max-height:290px;display:flex;flex-direction:column}
+.fo svg{display:block;width:100%;flex:1 1 0;min-height:0;height:0} /* схема занимает свободное место экрана */
+.fo text{font-family:var(--f-mono);font-size:12px;fill:var(--mute)}
+.fo .nm{fill:var(--ink);font-family:var(--f-ui);font-weight:600;font-size:13.5px}
+.fo .box{fill:var(--surface-2);stroke:var(--line);stroke-width:1}
+.fo .wire{fill:none;stroke:var(--line);stroke-width:1.5;stroke-dasharray:3 4}
+.fo .wire.live{stroke:var(--accent);stroke-dasharray:none;opacity:.55}
+.fo .dot{fill:var(--accent)}
+.fo .st-ok{fill:var(--accent)} .fo .st-down{fill:var(--down)}
+.fo .pill{font-size:11.5px}
+.fo .a-down,.fo .b-live{opacity:0} .fo .a-ok,.fo .b-idle{opacity:1}
+.fo.sw .a-down,.fo.sw .b-live{opacity:1} .fo.sw .a-ok,.fo.sw .b-idle{opacity:0}
+.fo .dots-a{opacity:1} .fo .dots-b{opacity:0}
+.fo.sw .dots-a{opacity:0} .fo.sw .dots-b{opacity:1}
+.fo.sw .wa{stroke:var(--down);opacity:.35;stroke-dasharray:3 4}
+.fo .t{transition:opacity .45s}
+.fo-cap{display:flex;justify-content:space-between;gap:8px;margin-top:4px;font:500 12px/1.3 var(--f-mono);color:var(--faint);white-space:nowrap}
+.fo-cap b{font-weight:500;color:var(--accent)}
+
+/* 2–3 · сценарии */
+.chip{align-self:flex-start;font:600 11px/1 var(--f-mono);letter-spacing:.06em;text-transform:uppercase;padding:6px 9px;border-radius:6px}
+.chip.urgent{color:var(--warn);background:var(--warn-soft)}
+.chip.calm{color:var(--accent);background:var(--accent-soft)}
+.blk{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px}
+.lbl{font:600 11px/1 var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--faint);margin-bottom:8px}
+.pr{color:var(--mute);font-size:clamp(14.5px,2vh,16px);line-height:1.5}
+.sol{display:flex;flex-direction:column;gap:clamp(7px,1.3vh,11px)}
+.sol li{display:grid;grid-template-columns:18px 1fr;gap:8px;font-size:clamp(14.5px,2vh,16px);line-height:1.4}
+.sol li::before{content:"→";color:var(--accent);font-family:var(--f-mono);font-size:14px;line-height:1.5}
+
+/* 2 · раскрывашки сценариев */
+.opt{appearance:none;text-align:left;cursor:pointer;width:100%;flex:1 1 0;min-height:0;max-height:330px;display:flex;flex-direction:column;gap:clamp(8px,1.3vh,12px);justify-content:center;
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:16px;color:var(--ink);transition:border-color .15s,transform .15s}
+.opt:active{transform:scale(.99)}
+.opt:hover{border-color:var(--faint)}
+.opt-t{font-weight:700;font-size:clamp(20px,3.1vh,26px);letter-spacing:-.015em;line-height:1.15}
+.opt-d{color:var(--mute);font-size:clamp(14.5px,2.05vh,17px);line-height:1.4}
+/* иконка-анимация сценария справа от метки */
+.opt-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.opt-ic{display:block;width:clamp(110px,17vh,148px);height:auto;flex:none;overflow:visible}
+.opt-ic .cl{fill:var(--surface-2);stroke-width:1.6}
+.opt-ic .cl-dn{stroke:var(--down)} .opt-ic .cl-ok{stroke:var(--accent)} .opt-ic .cl-rs{stroke:var(--accent);stroke-dasharray:3 3;opacity:.6;animation:obreathe 2.4s ease-in-out infinite}
+.opt-ic .pk{fill:var(--warn)} .opt-ic .rp{fill:var(--accent)}
+.opt-ic .rip{fill:none;stroke:var(--down);stroke-width:1.5;transform-box:fill-box;transform-origin:center;animation:orip 1.6s ease-out infinite}
+@keyframes orip{0%{transform:scale(.4);opacity:.7}100%{transform:scale(1.6);opacity:0}}
+@keyframes obreathe{0%,100%{opacity:.35}50%{opacity:.85}}
+.opt-m{display:flex;align-items:center;gap:10px;font:600 clamp(13.5px,1.85vh,15px)/1 var(--f-mono);letter-spacing:.04em;text-transform:uppercase;color:var(--accent);margin-top:4px}
+.opt-m i{font-style:normal;width:28px;height:28px;border-radius:8px;display:flex;align-items:center;justify-content:center;background:var(--accent-soft);font-size:18px}
+/* панель на весь экран */
+.pn{position:absolute;z-index:4;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);overflow:hidden;
+  transition:top .32s cubic-bezier(.2,.8,.2,1),left .32s cubic-bezier(.2,.8,.2,1),width .32s cubic-bezier(.2,.8,.2,1),height .32s cubic-bezier(.2,.8,.2,1),border-radius .32s,background-color .32s}
+.pn.full{background:var(--bg);border-radius:0;border-color:transparent}
+.pc{height:100%;overflow-y:auto;display:flex;flex-direction:column;gap:clamp(10px,2vh,16px);opacity:0;transition:opacity .18s;
+  padding:calc(clamp(16px,3vh,26px) + env(safe-area-inset-top,0px)) 20px calc(clamp(16px,3vh,26px) + env(safe-area-inset-bottom,0px))}
+.pn.full .pc{opacity:1;transition-delay:.16s}
+.pc > .btn{margin-top:auto}
+.pn-h{display:flex;align-items:center;justify-content:space-between}
+.x{appearance:none;border:1px solid var(--line);background:var(--surface);width:36px;height:36px;border-radius:10px;font-size:22px;line-height:1;cursor:pointer;color:var(--ink)}
+
+/* 4 · как работаем */
+.steps{display:flex;flex-direction:column;flex:1 1 auto;max-height:600px} /* шаги растягиваются на свободное место */
+.steps li{display:grid;grid-template-columns:30px 1fr;align-content:start;flex:1 1 auto;gap:2px 12px;padding-bottom:clamp(8px,1.6vh,14px);position:relative}
+.steps li:not(:last-child)::after{content:"";position:absolute;left:14px;top:30px;bottom:2px;border-left:1px solid var(--line)}
+.steps .n{grid-row:span 2;width:28px;height:28px;border-radius:50%;border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font:600 12px/1 var(--f-mono);color:var(--accent);background:var(--surface)}
+.steps b{font-weight:600;font-size:15.5px;line-height:1.3;padding-top:4px}
+.steps b small{font:500 12px/1 var(--f-mono);color:var(--faint);margin-left:6px}
+.steps p{color:var(--mute);font-size:clamp(13.5px,1.85vh,14.5px);line-height:1.4}
+
+/* 5 · с чем работаем */
+.tags{display:flex;flex-wrap:wrap;gap:8px}
+.tags li{font-size:15px;padding:8px 12px;border:1px solid var(--line);border-radius:999px;background:var(--surface)}
+.tags.mono li{font:500 13px/1.2 var(--f-mono);color:var(--mute)}
+.tags li.etc{background:transparent;border-style:dashed;color:var(--mute)}
+.stack{margin:0;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);overflow:hidden;flex:none;display:flex;flex-direction:column} /* компактная таблица, свободное место остаётся над кнопкой */
+.stack > div{display:grid;grid-template-columns:108px minmax(0,1fr);gap:10px;align-items:baseline;padding:6px 12px}
+.stack > div + div{border-top:1px solid var(--line)}
+.stack dt{color:var(--mute);font-size:13px;line-height:1.3}
+.stack dd{margin:0;font:500 12px/1.35 var(--f-mono);color:var(--ink)}
+.sub2{font-weight:600;font-size:16px}
+.txt{color:var(--mute);font-size:15px;line-height:1.5}
+/* «С чем работаем», вариант Г (21.10.2026): провайдеры строкой через точку, таблица в столбик — подпись мелко над значением */
+#h5a ~ .txt{font-size:14.5px;line-height:1.45}
+#h5a ~ .sub2{font-size:15px;margin-top:6px}
+#h5a ~ .tags{gap:2px 0}
+#h5a ~ .tags li{border:0;padding:0;background:none;font-size:14.5px;line-height:1.5;border-radius:0;color:var(--ink)}
+#h5a ~ .tags li:not(:last-child)::after{content:"·";color:var(--faint);margin:0 8px}
+#h5a ~ .tags li.etc{color:var(--mute)}
+#h5a ~ .stack{flex:1 1 auto;max-height:440px} /* таблица тянется на свободное место до кнопки, строки делят высоту поровну */
+#h5a ~ .stack > div{display:flex;flex-direction:column;justify-content:center;flex:1 1 auto;gap:clamp(2px,.45vh,4px);padding:6px 14px} /* на высоких экранах крупнее, без пустоты над кнопкой */
+#h5a ~ .stack dt{font:600 clamp(10.5px,1.35vh,11.5px)/1.2 var(--f-mono);letter-spacing:.07em;text-transform:uppercase;color:var(--faint)}
+#h5a ~ .stack dd{font-size:clamp(12.5px,1.75vh,15px);line-height:1.4}
+@media (max-height:760px){ /* низкие и средние окна: подпись и значения в одной строке, перенос — под ними */
+  #h5a ~ .stack{flex:none}
+  #h5a ~ .stack > div{display:block;padding:5px 12px;font-size:12.5px;line-height:1.45}
+  #h5a ~ .stack dt{display:inline;margin-right:8px}
+  #h5a ~ .stack dd{display:inline}
+}
+
+/* 6 · кейсы — карусель вбок */
+.car{display:flex;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;margin:0 -20px;padding:2px 20px 4px;scrollbar-width:none;overscroll-behavior-x:contain;flex:1 1 auto;min-height:0;max-height:660px} /* карусель занимает свободную высоту экрана */
+.car::-webkit-scrollbar{display:none}
+.case{flex:0 0 86%;scroll-snap-align:center;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:clamp(16px,2.6vh,24px) 18px;display:flex;flex-direction:column;gap:12px;overflow:hidden}
+.case .who{font:500 11.5px/1.35 var(--f-mono);letter-spacing:.04em;text-transform:uppercase;color:var(--faint)}
+.case .ttl{margin:0;font-weight:700;font-size:clamp(20px,3vh,24px);line-height:1.18;letter-spacing:-.02em;color:var(--ink);text-wrap:balance}
+.case .kpi{display:flex;flex-direction:column;margin:auto 0;background:var(--surface-2);border:1px solid var(--line);border-radius:12px}
+.case .kpi div{padding:12px 14px;display:flex;flex-direction:column;gap:4px}
+.case .kpi div + div{border-top:1px solid var(--line)}
+.case .kpi b{font:600 clamp(19px,2.8vh,23px)/1.15 var(--f-mono);letter-spacing:-.02em;color:var(--accent)}
+.case .kpi span{font-size:13px;line-height:1.3;color:var(--mute)}
+.case .ba{display:flex;flex-direction:column;gap:4px;margin:auto 0;font:600 clamp(24px,4.2vh,36px)/1.12 var(--f-mono);letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.case .ba i{font-style:normal;color:var(--faint);font-weight:500;font-size:.7em}
+.case .ba span:last-child{color:var(--accent)}
+.case p{font-size:clamp(14.5px,1.95vh,16px);line-height:1.45;color:var(--mute)}
+.cnav{display:flex;align-items:center;justify-content:center;gap:14px}
+.cdots{display:flex;justify-content:center;gap:6px}
+.carr{display:none;appearance:none;width:34px;height:34px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font:500 18px/1 var(--f-mono);cursor:pointer}
+.carr:hover{border-color:var(--faint)}
+.carr:disabled{opacity:.35;cursor:default}
+@media (hover:hover) and (pointer:fine){ .carr{display:flex;align-items:center;justify-content:center} }
+.cdots i{width:6px;height:6px;border-radius:50%;background:var(--line)}
+.cdots i.on{background:var(--accent)}
+.note{font-size:12.5px;color:var(--faint);text-align:center}
+@media (hover:hover) and (pointer:fine){ .note .sw-hint{display:none} }
+.mail{font:500 12.5px/1 var(--f-mono);color:var(--faint);text-align:center;user-select:all}
+
+/* запись на ревью: календарь → анкета → успех */
+.btn:disabled{opacity:.45;cursor:default;filter:none;transform:none}
+.sh{position:fixed;top:0;bottom:0;left:0;right:0;width:100%;max-width:440px;margin:0 auto;z-index:6; /* по реальной высоте окна: клавиатуру отрабатывает браузер (21.10.2026) */ background:var(--bg);transform:translateY(100%);transition:transform .3s cubic-bezier(.2,.8,.2,1)}
+.sh.on{transform:none}
+.sh-in{height:100%;overflow-y:auto;display:flex;flex-direction:column;gap:clamp(10px,1.8vh,16px);
+  padding:calc(clamp(14px,2.6vh,24px) + env(safe-area-inset-top,0px)) 20px calc(clamp(14px,2.6vh,24px) + env(safe-area-inset-bottom,0px))}
+.sh-h{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.sh-step{font:600 11.5px/1 var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}
+.sh .x[hidden]{display:block;visibility:hidden}
+.st{display:flex;flex-direction:column;gap:clamp(10px,1.8vh,16px);flex:1 1 auto}
+.st[hidden]{display:none}
+.st > .btn{margin-top:auto}
+/* поле в фокусе приклеено к низу над кнопкой: едет вверх вместе с краем анкеты и клавиатурой, без прокрутки (21.10.2026) */
+.sh.cm .q-cm{position:sticky;bottom:var(--cm-b,52px);z-index:1;background:var(--bg);padding:8px 0 12px;box-shadow:0 -14px 14px -2px var(--bg)}
+#lead-send{position:sticky;bottom:0;z-index:1;box-shadow:0 -14px 14px -2px var(--bg),0 40px 0 12px var(--bg)} /* длинная анкета: кнопка всегда видна */
+.days{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;flex:none} /* сетка вместо ленты: на компьютере ленту нечем листать */
+.days button,.times button,.chips button{appearance:none;cursor:pointer;color:var(--ink);background:var(--surface);border:1px solid var(--line);transition:border-color .15s,background-color .15s}
+.days button{padding:8px 4px;border-radius:12px;font:600 15px/1.2 var(--f-ui);text-align:center}
+.days button small{display:block;margin-bottom:3px;font:500 11px/1 var(--f-mono);letter-spacing:.04em;text-transform:uppercase;color:var(--mute)}
+.days button.on{border-color:var(--accent);background:var(--accent-soft)}
+.days button:disabled{opacity:.35;cursor:default}
+.times{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;align-content:start}
+.times button{padding:11px 0;border-radius:10px;font:500 14.5px/1 var(--f-mono)}
+.times button.on{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.q{display:flex;flex-direction:column;gap:8px}
+.q .lbl{margin:0}
+/* незаполненный обязательный вопрос (21.10.2026): красная подпись и рамки, короткое покачивание */
+.q.miss .lbl{color:var(--down)} .q.miss .chips button{border-color:var(--down)}
+.q.miss .lbl::after{content:' · выберите вариант';text-transform:none;letter-spacing:0;font-family:var(--f-ui);font-weight:500}
+.q.shake{animation:qshake .36s ease} @keyframes qshake{0%,100%{transform:none}20%{transform:translateX(-6px)}40%{transform:translateX(6px)}60%{transform:translateX(-4px)}80%{transform:translateX(3px)}}
+@media (prefers-reduced-motion: reduce){ .q.shake{animation:none} }
+.q-dt + .q-dt{margin-top:clamp(4px,1.2vh,12px)} /* отступ между датой и временем */
+.q .lbl span{text-transform:none;letter-spacing:0;font-weight:500}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chips button{padding:9px 13px;border-radius:999px;font-size:14.5px;line-height:1.2}
+.chips button.on{border-color:var(--accent);background:var(--accent-soft)}
+.sh textarea{width:100%;font:400 16px/1.45 var(--f-ui); /* 16px: меньше — iOS при фокусе приближает страницу */ color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px;resize:none}
+.sh textarea:focus{outline:none;border-color:var(--accent)}
+.q-cm{flex:1 1 auto;min-height:0} /* комментарий забирает свободное место до кнопки */
+.q-cm textarea{flex:1 1 auto;min-height:76px;max-height:260px}
+.pick{display:flex;justify-content:space-between;align-items:center;gap:10px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:11px 14px;font-weight:600;font-size:15px}
+.lnk{appearance:none;border:0;background:none;padding:0;color:var(--accent);font:600 13px/1 var(--f-mono);cursor:pointer}
+.st-msg{font-size:14px;line-height:1.45;color:var(--mute)}
+.st-msg.err{color:var(--down)}
+.st-msg:empty{display:none}
+.st-msg a{color:var(--accent)}
+.okmark{width:60px;height:60px;border-radius:50%;background:var(--accent-soft);color:var(--accent);display:flex;align-items:center;justify-content:center;font-size:30px;font-weight:700;margin-top:6vh}
+@media (max-height:640px){ .days button{padding:7px 9px} .times button{padding:9px 0} .okmark{margin-top:2vh} }
+
+/* тост вместо действия кнопки */
+.toast{position:fixed;left:50%;bottom:calc(84px + env(safe-area-inset-bottom,0px));transform:translate(-50%,20px);opacity:0;pointer-events:none;background:var(--ink);color:var(--bg);font-size:14px;padding:11px 16px;border-radius:10px;transition:opacity .2s,transform .2s;max-width:calc(100vw - 32px);text-align:center;z-index:5}
+.toast.on{opacity:1;transform:translate(-50%,0)}
+
+/* низкие экраны (iPhone SE и Telegram с клавиатурой) */
+@media (max-height:700px){ .fo-cap{display:none} .more{display:none} .tags{gap:6px} .tags li{font-size:14px;padding:6px 10px} .tags.mono li{font-size:12px} .stack > div{padding:2px 10px;gap:8px;grid-template-columns:100px minmax(0,1fr)} .stack dt{font-size:12.5px;line-height:1.25} .stack dd{font-size:11.5px;line-height:1.25} .h2{font-size:22px} }
+/* совсем низкие окна (Telegram Desktop ~580px): ужимаем, а если не влезло — экран растёт, отступ снизу сохраняется */
+@media (max-height:640px){
+  .scr{gap:8px;padding-top:calc(14px + env(safe-area-inset-top,0px));padding-bottom:calc(14px + env(safe-area-inset-bottom,0px))}
+  .h1{font-size:27px} .sub{font-size:15px;line-height:1.4}
+  .fo{max-height:170px} /* схема ниже, текст на шаг крупнее (21.10.2026) */
+  .fo{padding:6px 6px 4px}
+  .pts{gap:6px} .pts li{font-size:14.5px;line-height:1.35}
+  .btn{min-height:48px}
+  .eyebrow{margin-bottom:5px}
+  .opt{padding:12px 14px} .opt-ic{width:118px} /* надзаголовок не липнет к заголовку при gap 8px */
+}
+@media (prefers-reduced-motion: reduce){ .opt-ic .rip,.opt-ic .cl-rs{animation:none} .fo .t,.btn,.toast,.dots i{transition:none} .app,.car{scroll-behavior:auto} }
+</style>
+</head>
+<body>
+
+<div class="splash" aria-hidden="true"><svg viewBox="0 0 512 512"><path d="M56 64 L148 64 L304 300 L304 64 L390 64 L390 442 L301 442 L142 206 L142 442 L56 442 Z"/><circle cx="446" cy="400" r="43"/></svg></div>
+<div class="svc" id="svc">Черновик мини-приложения · 18.10.2026 · запись работает только внутри Telegram</div>
+
+<div class="frame">
+  <nav class="dots" id="dots" aria-hidden="true"></nav>
+  <main class="app" id="app">
+
+    <!-- 1 · Первый экран -->
+    <section class="scr" aria-labelledby="h1">
+      <div class="top"><div class="logo">Nautilus<span>.</span></div><div class="tg" lang="la">Mobilis in mobili</div></div>
+      <h1 class="h1" id="h1">Облако упало? <em>Ваш сервис — нет.</em></h1>
+      <p class="sub">Переносим инфраструктуру между провайдерами, заранее поднимаем резервную площадку или строим мультиклауд. На открытых инструментах, всё остаётся у вас.</p>
+      <figure class="fo" id="fo" aria-label="Схема: провайдер A недоступен, трафик переключён на провайдера B" style="margin:0">
+        <svg viewBox="0 0 320 150" role="img" aria-hidden="true">
+          <rect class="box" x="4" y="55" width="86" height="40" rx="9"/>
+          <text class="nm" x="47" y="74" text-anchor="middle">Клиенты</text>
+          <text x="47" y="88" text-anchor="middle">трафик</text>
+          <path id="pa" class="wire live wa t" d="M90 70 C 135 70, 140 34, 186 34"/>
+          <path id="pb" class="wire t" d="M90 80 C 135 80, 140 116, 186 116"/>
+          <path class="wire live t b-live" d="M90 80 C 135 80, 140 116, 186 116"/>
+          <rect class="box" x="186" y="12" width="130" height="46" rx="9"/>
+          <text class="nm" x="198" y="31">Провайдер A</text>
+          <g class="t a-ok"><circle class="st-ok" cx="203" cy="45" r="3.5"/><text class="pill" x="211" y="49">работает</text></g>
+          <g class="t a-down"><circle class="st-down" cx="203" cy="45" r="3.5"/><text class="pill" x="211" y="49">недоступен</text></g>
+          <rect class="box" x="186" y="93" width="130" height="46" rx="9"/>
+          <text class="nm" x="198" y="112">Провайдер B</text>
+          <g class="t b-idle"><circle class="st-ok" cx="203" cy="126" r="3.5" opacity=".5"/><text class="pill" x="211" y="130">резерв готов</text></g>
+          <g class="t b-live"><circle class="st-ok" cx="203" cy="126" r="3.5"/><text class="pill" x="211" y="130">работает</text></g>
+          <g class="t dots-a">
+            <circle class="dot" r="2.6"><animateMotion dur="1.6s" repeatCount="indefinite"><mpath href="#pa"/></animateMotion></circle>
+            <circle class="dot" r="2.6"><animateMotion dur="1.6s" begin="-0.8s" repeatCount="indefinite"><mpath href="#pa"/></animateMotion></circle>
+          </g>
+          <g class="t dots-b">
+            <circle class="dot" r="2.6"><animateMotion dur="1.6s" repeatCount="indefinite"><mpath href="#pb"/></animateMotion></circle>
+            <circle class="dot" r="2.6"><animateMotion dur="1.6s" begin="-0.8s" repeatCount="indefinite"><mpath href="#pb"/></animateMotion></circle>
+          </g>
+        </svg>
+        <figcaption class="fo-cap"><span id="fo-l">всё у провайдера A</span><b id="fo-r">план Б готов</b></figcaption>
+      </figure>
+      <ul class="pts">
+        <li>Мультиклауд: отказ одного провайдера не останавливает бизнес</li>
+        <li>Vendor-agnostic: открытые инструменты, без привязки к облаку и к нам</li>
+        <li>Работаем с Yandex Cloud, VK Cloud, Selectel, AWS и любыми другими</li>
+      </ul>
+      <button class="btn" type="button" data-cta>Бесплатное ревью</button>
+      <div class="more">листайте</div>
+    </section>
+
+    <!-- 2 · Два сценария: раскрывашки, каждая разворачивается на весь экран -->
+    <section class="scr" aria-labelledby="h2a">
+      <div class="eyebrow">Два сценария</div>
+      <h2 class="h2" id="h2a">Переезжать сейчас или подготовиться заранее</h2>
+      <button class="opt" type="button" data-open="pn-urgent" aria-haspopup="dialog">
+        <span class="opt-top"><span class="chip urgent">Срочно</span><svg class="opt-ic" viewBox="4 8 96 44" aria-hidden="true"><circle class="rip" cx="31" cy="37" r="14"/><path class="cl cl-dn" d="M14 46 H44 a9 9 0 0 0 1-17.9 A13 13 0 0 0 20 26.5 A10 10 0 0 0 14 46 Z"/><rect class="pk" x="-3.5" y="-3.5" width="7" height="7" rx="1.5"><animateMotion dur="2.1s" repeatCount="indefinite" keyPoints="0;1" keyTimes="0;1" path="M36 37 H96"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;.15;.8;1" dur="2.1s" repeatCount="indefinite"/></rect><rect class="pk" x="-3.5" y="-3.5" width="7" height="7" rx="1.5"><animateMotion dur="2.1s" begin="-0.7s" repeatCount="indefinite" path="M36 37 H96"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;.15;.8;1" dur="2.1s" begin="-0.7s" repeatCount="indefinite"/></rect><rect class="pk" x="-3.5" y="-3.5" width="7" height="7" rx="1.5"><animateMotion dur="2.1s" begin="-1.4s" repeatCount="indefinite" path="M36 37 H96"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;.15;.8;1" dur="2.1s" begin="-1.4s" repeatCount="indefinite"/></rect></svg></span>
+        <span class="opt-t">Срочный переезд</span>
+        <span class="opt-d">Провайдер недоступен, а ждать восстановления нельзя</span>
+        <span class="opt-m">Подробнее <i aria-hidden="true">+</i></span>
+      </button>
+      <button class="opt" type="button" data-open="pn-calm" aria-haspopup="dialog">
+        <span class="opt-top"><span class="chip calm">Заранее</span><svg class="opt-ic" viewBox="4 8 96 44" aria-hidden="true"><g transform="translate(40 -14)"><path class="cl cl-rs" d="M14 46 H44 a9 9 0 0 0 1-17.9 A13 13 0 0 0 20 26.5 A10 10 0 0 0 14 46 Z"/></g><path class="cl cl-ok" d="M14 46 H44 a9 9 0 0 0 1-17.9 A13 13 0 0 0 20 26.5 A10 10 0 0 0 14 46 Z"/><circle class="rp" r="3"><animateMotion dur="2s" repeatCount="indefinite" path="M34 34 C 46 20, 60 18, 70 22"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;.2;.8;1" dur="2s" repeatCount="indefinite"/></circle><circle class="rp" r="3"><animateMotion dur="2s" begin="-1s" repeatCount="indefinite" path="M34 34 C 46 20, 60 18, 70 22"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;.2;.8;1" dur="2s" begin="-1s" repeatCount="indefinite"/></circle></svg></span>
+        <span class="opt-t">Мультиклауд или резерв</span>
+        <span class="opt-d">Всё у одного провайдера? Его сбой станет вашим простоем. Обезопасьте себя</span>
+        <span class="opt-m">Подробнее <i aria-hidden="true">+</i></span>
+      </button>
+      <button class="btn" type="button" data-cta>Бесплатное ревью</button>
+    </section>
+
+    <!-- 4 · С чем работаем -->
+    <section class="scr" aria-labelledby="h5a">
+      <div class="eyebrow">С чем работаем</div>
+      <h2 class="h2" id="h5a">Любой облачный провайдер или ваше железо</h2>
+      <p class="txt">Неважно, где вы сейчас. Переносим между провайдерами, собираем резерв без закрытых сервисов одного облака, строим мультиклауд.</p>
+      <div class="sub2">Провайдеры</div>
+      <ul class="tags" aria-label="Провайдеры">
+        <li>Yandex Cloud</li><li>VK Cloud</li><li>Selectel</li><li>Cloud.ru</li><li>AWS</li><li>Google Cloud</li><li>Ваши серверы</li><li class="etc">и другие</li>
+      </ul>
+      <div class="sub2">Инструменты</div>
+      <dl class="stack" aria-label="Инструменты">
+        <div><dt>Оркестрация</dt><dd>Kubernetes, Docker</dd></div>
+        <div><dt>Инфраструктура</dt><dd>Terraform, Ansible</dd></div>
+        <div><dt>Данные</dt><dd>PostgreSQL, MySQL, Kafka, RabbitMQ, Redis</dd></div>
+        <div><dt>Секреты</dt><dd>Vault, SOPS</dd></div>
+        <div><dt>Наблюдаемость</dt><dd>VictoriaMetrics, Loki, VictoriaLogs, Prometheus, ELK, Grafana, Alertmanager</dd></div>
+      </dl>
+      <button class="btn" type="button" data-cta>Бесплатное ревью</button>
+    </section>
+
+    <!-- 5 · Как работаем -->
+    <section class="scr" aria-labelledby="h4a">
+      <div class="eyebrow">Как работаем</div>
+      <h2 class="h2" id="h4a">От заявки до переключения</h2>
+      <ol class="steps">
+        <li><span class="n">1</span><b>Заявка</b><p>Оставляете заявку в Telegram, отвечаем в рабочее время.</p></li>
+        <li><span class="n">2</span><b>Звонок<small>30 мин</small></b><p>С командой инженеров. Обсуждаем вашу текущую конфигурацию.</p></li>
+        <li><span class="n">3</span><b>Бесплатное ревью</b><p>Можно без доступа к системам: даём промт для вашего AI-агента или список вопросов для отдела разработки.</p></li>
+        <li><span class="n">4</span><b>Смета</b><p>Приносим смету: что переносим, куда, в каком порядке и в какие сроки. Цена известна до начала работы.</p></li>
+        <li><span class="n">5</span><b>Работы по смете</b><p>Проводим работы по смете: переезд, резерв или мультиклауд. Проверяем переключение.</p></li>
+      </ol>
+      <button class="btn" type="button" data-cta>Бесплатное ревью</button>
+    </section>
+
+    <!-- 6 · Кейсы -->
+    <section class="scr" aria-labelledby="h6a">
+      <div class="eyebrow">Опыт</div>
+      <h2 class="h2" id="h6a">Кейсы команды</h2>
+      <div class="car" id="car">
+        <article class="case">
+          <div class="who">Компания, выделенная из холдинга</div>
+          <h3 class="ttl">Переезд в новый регион и аккаунт AWS</h3>
+          <div class="kpi"><div><b>2 недели</b><span>срок</span></div><div><b>5 минут</b><span>весь простой</span></div></div>
+          <p>Перенесли прод и 6 тестовых окружений: фронтенд, боты, бэкенд, Kafka, кэш и Postgres на 2&nbsp;ТБ. Весь простой 5 минут.</p>
+        </article>
+        <article class="case">
+          <div class="who">iGaming-платформа под постоянными блокировками</div>
+          <h3 class="ttl">Инфраструктура в трёх облаках</h3>
+          <div class="kpi"><div><b>3 недели</b><span>срок</span></div><div><b>AWS, GCP, Hetzner</b><span>облака</span></div></div>
+          <p>Ядро в AWS, фронтенды в GCP: при блокировке их быстро переносили, основной аккаунт не страдал. Hetzner держал CI-раннеры и бэкапы.</p>
+        </article>
+        <article class="case">
+          <div class="who">Гибридная инфраструктура, 30 узлов</div>
+          <h3 class="ttl">Кластер Kubernetes в трёх регионах</h3>
+          <div class="kpi"><div><b>2 недели</b><span>срок</span></div><div><b>3 региона</b><span>отказ одного не останавливает сервис</span></div></div>
+          <p>Геораспределённый кластер Kubernetes на виртуалках и bare-metal: при отказе региона сервис продолжает работать.</p>
+        </article>
+        <article class="case">
+          <div class="who">Аудиостриминг, 70+ серверов</div>
+          <h3 class="ttl">Переезд со своего железа в облако</h3>
+          <div class="kpi"><div><b>3 месяца</b><span>срок</span></div><div><b>минуты</b><span>подъём сервиса</span></div></div>
+          <p>Упаковали приложения в Docker и перенесли с Puppet на Kubernetes в Huawei Cloud. Выкат одинаковый для всех сред, сервис поднимается за минуты.</p>
+        </article>
+        <article class="case">
+          <div class="who">Маркетплейс аренды техники, ~50 витрин</div>
+          <h3 class="ttl">Переезд из DigitalOcean в AWS</h3>
+          <div class="kpi"><div><b>1 месяц</b><span>срок</span></div><div><b>15 мин вместо 5 ч</b><span>релиз всех витрин</span></div></div>
+          <p>Перенесли фронтенды и бэкенды с виртуалок в Kubernetes и распараллелили раскатку. Полный релиз всех витрин занимает 15 минут вместо 5 часов.</p>
+        </article>
+        <article class="case">
+          <div class="who">Технологическая группа, 2 000+ узлов</div>
+          <h3 class="ttl">Сокращение расходов на инфраструктуру</h3>
+          <div class="kpi"><div><b>−60%</b><span>расходы</span></div><div><b>12 месяцев</b><span>срок</span></div></div>
+          <p>AWS, Azure и bare-metal одновременно. FinOps и right-sizing сократили расходы на 60% без потери мощностей и доступности.</p>
+        </article>
+      </div>
+      <div class="cnav"><button class="carr" type="button" id="cprev" aria-label="Предыдущий кейс">‹</button><div class="cdots" id="cdots" aria-hidden="true"></div><button class="carr" type="button" id="cnext" aria-label="Следующий кейс">›</button></div>
+      <button class="btn" type="button" data-cta>Бесплатное ревью</button>
+    </section>
+
+  </main>
+
+  <!-- раскрытые сценарии: панель вырастает из своей карточки на весь экран -->
+  <section class="pn" id="pn-urgent" role="dialog" aria-modal="true" aria-labelledby="pn-urgent-t" hidden>
+    <div class="pc">
+      <div class="pn-h"><span class="chip urgent">Срочно</span><button class="x" type="button" data-close aria-label="Закрыть">×</button></div>
+      <h2 class="h2" id="pn-urgent-t">Срочный переезд</h2>
+      <div class="blk"><div class="lbl">Проблема</div><p class="pr">Провайдер недоступен или работает с перебоями. Новые ресурсы не создаются, сроков восстановления нет, а ждать нельзя.</p></div>
+      <div class="blk"><div class="lbl">Что делаем</div>
+        <ul class="sol">
+          <li>Начинаем с критических для бизнеса сервисов</li>
+          <li>Поднимаем Kubernetes-кластер или виртуалки у другого провайдера</li>
+          <li>Переносим данные и базы</li>
+          <li>Переключаем трафик</li>
+        </ul>
+      </div>
+      <button class="btn" type="button" data-cta data-scn="urgent">Обсудить переезд</button>
+    </div>
+  </section>
+  <section class="pn" id="pn-calm" role="dialog" aria-modal="true" aria-labelledby="pn-calm-t" hidden>
+    <div class="pc">
+      <div class="pn-h"><span class="chip calm">Заранее</span><button class="x" type="button" data-close aria-label="Закрыть">×</button></div>
+      <h2 class="h2" id="pn-calm-t">Мультиклауд или резерв</h2>
+      <div class="blk"><div class="lbl">Проблема</div><p class="pr">Сейчас всё работает, но целиком у одного провайдера. Если он откажет, простой будет без сроков, а план придётся придумывать на ходу.</p></div>
+      <div class="blk"><div class="lbl">Что делаем</div>
+        <ul class="sol">
+          <li>Создаём резервную площадку у второго провайдера</li>
+          <li>Тестируем плановое переключение</li>
+          <li>Обеспечиваем работу сервиса на двух и более площадках</li>
+          <li>Устанавливаем RTO и RPO под ваши бизнес-задачи</li>
+        </ul>
+      </div>
+      <button class="btn" type="button" data-cta data-scn="multi">Подготовить план Б</button>
+    </div>
+  </section>
+  <!-- запись на ревью: календарь → анкета → успех -->
+  <section class="sh" id="lead" role="dialog" aria-modal="true" aria-labelledby="lead-t1" hidden>
+    <div class="sh-in">
+      <div class="sh-h"><button class="x" type="button" data-sh-back aria-label="Назад">‹</button><span class="sh-step" id="lead-step">Шаг 1 из 2</span><button class="x" type="button" data-sh-close aria-label="Закрыть">×</button></div>
+      <div class="st" data-st="1">
+        <h2 class="h2" id="lead-t1">Когда удобно созвониться?</h2>
+        <p class="txt">30 минут с командой по видеосвязи. Время московское (МСК, GMT+3).</p>
+        <div class="q q-dt"><div class="lbl">Дата</div><div class="days" id="lead-days" role="listbox" aria-label="Дата"></div></div>
+        <div class="q q-dt"><div class="lbl">Время</div><div class="times" id="lead-times" role="listbox" aria-label="Время"></div></div>
+        <p class="st-msg" id="lead-msg1"></p>
+        <button class="btn" type="button" id="lead-next" disabled>Дальше</button>
+      </div>
+      <div class="st" data-st="2" hidden>
+        <h2 class="h2">Несколько вопросов</h2>
+        <div class="pick"><span id="lead-when"></span><button type="button" class="lnk" data-sh-back>изменить</button></div>
+        <div class="q"><div class="lbl">Что нужно</div>
+          <div class="chips" data-q="scenario"><button type="button" data-v="urgent">Срочный переезд</button><button type="button" data-v="rsv_now">Срочный резерв</button><button type="button" data-v="multi">Мультиклауд</button><button type="button" data-v="rsv_plan">Плановый резерв</button><button type="button" data-v="move_plan">Плановый переезд</button><button type="button" data-v="other">Другое</button></div></div>
+        <div class="q"><div class="lbl">Где сейчас инфраструктура <span>· можно несколько</span></div>
+          <div class="chips" data-q="infra" data-multi><button type="button">Yandex Cloud</button><button type="button">VK Cloud</button><button type="button">Selectel</button><button type="button">Cloud.ru</button><button type="button">Зарубежные провайдеры</button><button type="button">Свои серверы</button><button type="button">Другое</button><button type="button">Не знаю</button></div></div>
+        <div class="q"><div class="lbl">Объём данных</div>
+          <div class="chips" data-q="data"><button type="button">До 1 ТБ</button><button type="button">1–10 ТБ</button><button type="button">Больше 10 ТБ</button><button type="button">Не знаю</button></div></div>
+        <div class="q"><div class="lbl">Нагрузка в контейнерах</div>
+          <div class="chips" data-q="cont"><button type="button">Да</button><button type="button">Частично</button><button type="button">Нет</button><button type="button">Не знаю</button></div></div>
+        <div class="q"><div class="lbl">Сколько сервисов</div>
+          <div class="chips" data-q="svc"><button type="button">До 10</button><button type="button">10–50</button><button type="button">Больше 50</button><button type="button">Не знаю</button></div></div>
+        <div class="q"><div class="lbl">Сколько баз данных</div>
+          <div class="chips" data-q="db"><button type="button">1–2</button><button type="button">3–10</button><button type="button">Больше 10</button><button type="button">Не знаю</button></div></div>
+        <div class="q q-cm"><div class="lbl">Комментарий <span>· необязательно</span></div>
+          <textarea id="lead-comment" rows="3" maxlength="1000" placeholder="Что важно знать: сервисы, базы, сроки"></textarea></div>
+        <p class="st-msg" id="lead-msg2"></p>
+        <button class="btn" type="button" id="lead-send">Записаться</button>
+      </div>
+      <div class="st" data-st="3" hidden>
+        <div class="okmark" aria-hidden="true">✓</div>
+        <h2 class="h2">Заявка принята</h2>
+        <p class="txt" id="lead-done"></p>
+        <button class="btn" type="button" data-sh-close>Готово</button>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite">Действие кнопки решим позже</div>
+
+<script>
+/* Своя аналитика (21.10.2026): события → /api/ev → D1, отчёт /api/report. Только шаги воронки, без текста анкеты.
+   window.nt(ev, arg) — для вызовов из кода записи; экраны, кейсы и нажатия ловятся здесь. */
+(function(){
+  /* 23.11.2026: адрес API. Здесь пустой — свой /api на Cloudflare. Сборка для GitHub (build_github.py) подставляет вместо метки
+     адрес пересыльщика (5-страницы/relay): из России Cloudflare недоступен. До переезда на GitHub приложение от сервера не зависит. */
+  var API = window.API_BASE = 'https://api.nautilusops.dev:8444';
+  var tg = window.Telegram && window.Telegram.WebApp, inTg = !!(tg && tg.initData);
+  var u = (tg && tg.initDataUnsafe) || {}, qs = new URLSearchParams(location.search);
+  var base = { initData: inTg ? tg.initData : '', sid: Math.random().toString(36).slice(2, 12),
+    src: u.start_param || qs.get('src') || qs.get('tgWebAppStartParam') || '', plat: (tg && tg.platform) || 'web',
+    lang: (u.user && u.user.language_code) || (navigator.language || '').slice(0, 2) };
+  var q = [], timer = null, t0 = Date.now(), seen = {};
+  function flush(beacon){
+    if (!q.length) return; var body = JSON.stringify({ batch: q.splice(0, 20).map(function(e){ return Object.assign({}, base, e); }) });
+    /* тип text/plain — запрос на адрес пересыльщика уходит без предварительного запроса CORS; ev.js читает JSON при любом типе */
+    try { if (beacon && navigator.sendBeacon) navigator.sendBeacon(API + '/api/ev', new Blob([body], { type: 'text/plain' }));
+      else fetch(API + '/api/ev', { method: 'POST', body: body, keepalive: true }).catch(function(){}); } catch(e){}
+  }
+  function nt(ev, arg){ q.push({ ev: ev, arg: arg == null ? '' : String(arg) }); clearTimeout(timer); timer = setTimeout(flush, 1200); }
+  function once(ev, arg){ var k = ev + ':' + arg; if (seen[k]) return; seen[k] = 1; nt(ev, arg); }
+  window.nt = nt;
+  nt('open', base.src);
+  var caseLeave = function(){}, caseBack = function(){};
+  document.addEventListener('DOMContentLoaded', function(){
+    var app = document.getElementById('app'), car = document.getElementById('car'), st1 = null, st2 = null;
+    function scrIdx(){ return app ? Math.round(app.scrollTop / Math.max(1, app.clientHeight)) + 1 : 1; }
+    var scrs = app ? app.querySelectorAll('.scr') : [], nScr = scrs.length || 5, lead = document.getElementById('lead');
+    var lastK = 1; // экран прошлой остановки: экраны между остановками пролистаны быстрее 0,4 с
+    /* Кейсы (22.10.2026): дошёл до экрана кейсов — засчитан кейс, который на виду (обычно 1-й); каждая остановка
+       на другом кейсе ≥0,4 с — отдельный шаг 'case'; уход с экрана кейсов, кнопка или сворачивание — 'case_leave' «кейс:куда». */
+    var casesScr = 0, lastCase = 0; // lastCase — кейс прошлой остановки, 0 — человек не на кейсах
+    for (var s = 0; s < scrs.length; s++) if (car && scrs[s].contains(car)) casesScr = s + 1;
+    function caseIdx(){ var c = car && car.children[0]; return c ? Math.max(1, Math.min(car.children.length, Math.round(car.scrollLeft / (c.offsetWidth + 12)) + 1)) : 1; }
+    function caseStop(){ var i = caseIdx(); if (i !== lastCase) { lastCase = i; nt('case', i); } }
+    caseLeave = function(to){ if (lastCase) { nt('case_leave', caseIdx() + ':' + to); lastCase = 0; } };
+    caseBack = function(){ if (casesScr && scrIdx() === casesScr && !(lead && !lead.hidden)) caseStop(); };
+    if (app) app.addEventListener('scroll', function(){ clearTimeout(st1); st1 = setTimeout(function(){ if (lead && !lead.hidden) return; var k = scrIdx(); if (k < 1 || k > nScr) return;
+      for (var j = Math.min(k, lastK) + 1; j < Math.max(k, lastK); j++) if (j > 1 && !seen['screen:' + j]) once('screen_skip', j);
+      if (k > 1) once('screen', k); lastK = k;
+      if (casesScr) { if (k === casesScr) { if (!lastCase) caseStop(); } else caseLeave('экран ' + k); } }, 400); }, { passive: true });
+    if (car) car.addEventListener('scroll', function(){ clearTimeout(st2); st2 = setTimeout(caseStop, 400); }, { passive: true });
+    document.addEventListener('click', function(e){
+      var c = e.target.closest('[data-cta]'); if (c) { if (scrIdx() === casesScr) caseLeave('кнопка'); nt('cta', c.getAttribute('data-scn') || 'экран ' + scrIdx()); return; }
+      var o = e.target.closest('[data-open]'); if (o) nt('scn_open', (o.getAttribute('data-open') || '').replace(/^pn-/, ''));
+    }, true);
+  });
+  var away = false; // iOS может прислать «скрыто» дважды подряд — пишем только смену состояния
+  document.addEventListener('visibilitychange', function(){ var sec = Math.round((Date.now() - t0) / 1000);
+    if (document.hidden && !away) { away = true; caseLeave('закрыл'); nt('hide', sec); flush(true); }
+    else if (!document.hidden && away) { away = false; nt('show', sec); caseBack(); } });
+})();
+</script>
+<script>
+(function(){
+  var root = document.documentElement, app = document.getElementById('app');
+  /* Telegram: высота окна, тема, отключение свайпа «свернуть», служебная полоса скрыта */
+  var tg = window.Telegram && window.Telegram.WebApp;
+  var inTg = !!(tg && tg.initData);
+  /* высота экрана; в свёрнутом мини-приложении Telegram отдаёт ~60–100px — такие значения пропускаем, иначе после разворота виден только верх */
+  function setH(){
+    if (!inTg) return;
+    var h = tg.viewportStableHeight || 0;
+    if (h < 320) h = window.innerHeight;
+    if (h < 320) return;
+    root.style.setProperty('--app-h', h + 'px');
+    var a = document.getElementById('app');
+    if (a && a.clientHeight) a.scrollTop = Math.round(a.scrollTop / a.clientHeight) * a.clientHeight; /* вернуть снап на экран */
+  }
+  function setHLater(){ setH(); setTimeout(setH, 120); setTimeout(setH, 500); }
+  if (inTg) { try {
+    tg.expand(); /* tg.ready() — в show(): до готовности экрана Telegram держит свою заставку с иконкой */
+    if (tg.disableVerticalSwipes) tg.disableVerticalSwipes();
+    if (tg.colorScheme) root.setAttribute('data-theme', tg.colorScheme);
+    document.getElementById('svc').hidden = true;
+    setH(); tg.onEvent('viewportChanged', setH);
+    try { tg.onEvent('activated', setHLater); } catch(e){}
+    window.addEventListener('resize', setH);
+    document.addEventListener('visibilitychange', function(){ if (!document.hidden) setHLater(); });
+  } catch(e){} } else document.body.classList.add('has-svc');
+  /* показ после шрифта и окончательной высоты от Telegram (viewportChanged с isStateStable после expand); не позже 1,2 с */
+  (function(){ var done = false, font = false, vp = !inTg;
+    function show(){ if (done) return; done = true; setH(); if (inTg) { try { tg.ready(); } catch(e){} } requestAnimationFrame(function(){ root.classList.remove('boot'); setTimeout(function(){ root.classList.add('ready'); }, 300); }); }
+    function check(){ if (font && vp) show(); }
+    if (inTg) { try { tg.onEvent('viewportChanged', function(e){ if (!e || e.isStateStable) { vp = true; check(); } }); } catch(e){ vp = true; } setTimeout(function(){ vp = true; check(); }, 500); }
+    try { if (document.fonts && document.fonts.ready) document.fonts.ready.then(function(){ font = true; check(); }); else font = true; } catch(e){ font = true; }
+    check(); setTimeout(show, 1200); })();
+
+  /* точки страниц */
+  var scr = [].slice.call(app.querySelectorAll('.scr')), dots = document.getElementById('dots');
+  dots.innerHTML = scr.map(function(){ return '<i></i>'; }).join('');
+  var di = [].slice.call(dots.children);
+  function mark(){ var k = Math.round(app.scrollTop / app.clientHeight); di.forEach(function(d, j){ d.classList.toggle('on', j === k); }); }
+  app.addEventListener('scroll', mark, { passive:true }); mark();
+
+  /* карусель кейсов */
+  var car = document.getElementById('car'), cd = document.getElementById('cdots'), cards = [].slice.call(car.children);
+  cd.innerHTML = cards.map(function(){ return '<i></i>'; }).join('');
+  var ci = [].slice.call(cd.children);
+  var cprev = document.getElementById('cprev'), cnext = document.getElementById('cnext');
+  function cw(){ return cards[0].offsetWidth + 12; }
+  function cmark(){ var k = Math.round(car.scrollLeft / cw()); ci.forEach(function(d, j){ d.classList.toggle('on', j === k); }); cprev.disabled = k <= 0; cnext.disabled = k >= cards.length - 1; }
+  cprev.addEventListener('click', function(){ car.scrollBy({ left: -cw(), behavior: 'smooth' }); });
+  cnext.addEventListener('click', function(){ car.scrollBy({ left: cw(), behavior: 'smooth' }); });
+  car.addEventListener('scroll', cmark, { passive:true }); cmark();
+
+  /* схема: трафик идёт к A, A падает, трафик уходит на B; без анимации — сразу «переключено» */
+  var fo = document.getElementById('fo'), l = document.getElementById('fo-l'), r = document.getElementById('fo-r');
+  function set(sw){ fo.classList.toggle('sw', sw); l.textContent = sw ? 'A недоступен' : 'всё у провайдера A'; r.textContent = sw ? 'трафик на B' : 'план Б готов'; }
+  var rm = false; try { rm = window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch(e){}
+  if (rm) { [].forEach.call(document.querySelectorAll('.opt-ic'), function(v){ try { v.pauseAnimations(); } catch(e){} }); }
+  if (rm) set(true); else { var s = false; set(false); setInterval(function(){ s = !s; set(s); }, 2500); }
+
+  /* раскрывашки: панель вырастает из карточки на весь экран и сворачивается обратно */
+  var frame = document.querySelector('.frame'), cur = null, curFrom = null;
+  function rectOf(el){ var f = frame.getBoundingClientRect(), r = el.getBoundingClientRect();
+    return { top: (r.top - f.top) + 'px', left: (r.left - f.left) + 'px', width: r.width + 'px', height: r.height + 'px' }; }
+  function place(p, r){ p.style.top = r.top; p.style.left = r.left; p.style.width = r.width; p.style.height = r.height; }
+  function openPn(id, from){
+    var p = document.getElementById(id); if (!p || cur) return;
+    cur = p; curFrom = from;
+    place(p, rectOf(from)); p.hidden = false; app.style.overflow = 'hidden';
+    void p.offsetWidth; // зафиксировать стартовое положение перед анимацией
+    place(p, { top:'0px', left:'0px', width:'100%', height:'100%' }); p.classList.add('full');
+    if (rm) p.style.transition = 'none';
+    var x = p.querySelector('[data-close]'); setTimeout(function(){ try { x.focus({ preventScroll:true }); } catch(e){} }, rm ? 0 : 340);
+    if (inTg && tg.BackButton) { try { tg.BackButton.show(); } catch(e){} }
+  }
+  function closePn(){
+    var p = cur; if (!p) return; cur = null;
+    p.classList.remove('full'); place(p, rectOf(curFrom));
+    var done = function(){ p.hidden = true; p.style.cssText = ''; app.style.overflow = ''; try { curFrom.focus({ preventScroll:true }); } catch(e){} };
+    if (rm) done(); else setTimeout(done, 330);
+    if (inTg && tg.BackButton) { try { tg.BackButton.hide(); } catch(e){} }
+  }
+  document.addEventListener('click', function(e){
+    var o = e.target.closest('[data-open]'); if (o) { openPn(o.getAttribute('data-open'), o); return; }
+    if (e.target.closest('[data-close]')) closePn();
+  });
+  document.addEventListener('keydown', function(e){ if (e.key === 'Escape') { if (!shBack()) closePn(); } });
+  if (inTg && tg.BackButton) { try { tg.BackButton.onClick(function(){ if (!shBack()) closePn(); }); } catch(e){} }
+
+  /* запись на ревью: календарь (слоты Cal.com) → анкета → успех; заявку отправляет /api/lead */
+  var sh = document.getElementById('lead'), stepLbl = document.getElementById('lead-step');
+  /* клавиатура в анкете: анкета position:fixed по реальной высоте окна, браузер сам держит поле над клавиатурой (скриптом было с отставанием в кадр) */
+  (function(){ var cm = document.getElementById('lead-comment'), btn = document.getElementById('lead-send');
+    cm.addEventListener('focus', function(){ sh.style.setProperty('--cm-b', (btn ? btn.offsetHeight : 52) + 'px'); sh.classList.add('cm'); });
+    cm.addEventListener('blur', function(){ sh.classList.remove('cm'); }); })();
+  /* страховка: если через 0,25 с после остановки клавиатуры поле всё ещё закрыто — один раз мгновенно прокрутить */
+  (function(){ var vv = window.visualViewport, t = 0;
+    function check(){ var f = document.activeElement; if (!f || !sh.contains(f) || !f.matches('textarea, input')) return;
+      var r = f.getBoundingClientRect(), h = vv ? vv.height + vv.offsetTop : innerHeight, btn = document.getElementById('lead-send'), lim = h - (btn ? btn.offsetHeight + 12 : 0);
+      if (r.bottom > lim || r.top < 0) sh.querySelector('.sh-in').scrollBy({ top: r.bottom - lim + 16, behavior: 'auto' }); }
+    function later(){ clearTimeout(t); t = setTimeout(check, 250); }
+    if (vv) vv.addEventListener('resize', later); window.addEventListener('resize', later); sh.addEventListener('focusin', later); })();
+  var daysEl = document.getElementById('lead-days'), timesEl = document.getElementById('lead-times');
+  var msg1 = document.getElementById('lead-msg1'), msg2 = document.getElementById('lead-msg2');
+  var nextBtn = document.getElementById('lead-next'), sendBtn = document.getElementById('lead-send');
+  var TZ = 'Europe/Moscow', CTZ = TZ; /* время показываем московское, пояс клиента — для команды */
+  try { CTZ = Intl.DateTimeFormat().resolvedOptions().timeZone || TZ; } catch(e){}
+  var st = { step: 1, day: null, start: null, scenario: null, infra: null }, slots = null, slotsAt = 0;
+  function hap(kind){ if (inTg && tg.HapticFeedback) { try { kind === 'sel' ? tg.HapticFeedback.selectionChanged() : tg.HapticFeedback.notificationOccurred(kind); } catch(e){} } }
+  function fmt(iso, o){ try { return new Intl.DateTimeFormat('ru-RU', Object.assign({ timeZone: TZ }, o)).format(new Date(iso)); } catch(e){ return ''; } }
+  function hhmm(iso){ return fmt(iso, { hour: '2-digit', minute: '2-digit' }); }
+  function whenText(iso){ var d = fmt(iso, { weekday: 'short', day: 'numeric', month: 'long' }); return d.charAt(0).toUpperCase() + d.slice(1) + ', ' + hhmm(iso) + ' МСК'; }
+  function calLink(){ return '<a href="https://cal.com/nautilusops/30m" target="_blank" rel="noopener" data-ext>открыть календарь записи</a>'; }
+  function setStep(n){
+    st.step = n;
+    [].forEach.call(sh.querySelectorAll('.st'), function(el){ el.hidden = el.getAttribute('data-st') !== String(n); });
+    stepLbl.textContent = n < 3 ? 'Шаг ' + n + ' из 2' : '';
+    sh.querySelector('.sh-h [data-sh-back]').hidden = n !== 2;
+    sh.querySelector('.sh-in').scrollTop = 0;
+    if (window.nt) nt('lead_step', n);
+  }
+  function renderTimes(){
+    var list = (slots && slots[st.day]) || [];
+    timesEl.innerHTML = list.map(function(iso){ return '<button type="button" role="option" data-t="' + iso + '"' + (iso === st.start ? ' class="on" aria-selected="true"' : '') + '>' + hhmm(iso) + '</button>'; }).join('');
+    nextBtn.disabled = !st.start;
+  }
+  /* дни сеткой по неделям: столбцы Пн–Пт (с выходными, если в Cal.com есть слоты в выходные), текущая и следующая неделя; дни без слотов бледные */
+  function addDays(k, n){ var d = new Date(k + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
+  function renderDays(){
+    var keys = Object.keys(slots || {}).sort();
+    if (!keys.length) { daysEl.innerHTML = ''; timesEl.innerHTML = ''; msg1.className = 'st-msg'; msg1.innerHTML = 'Свободного времени в ближайшие недели нет. Можно ' + calLink() + '.'; return; }
+    var first = keys[0], wd = (new Date(first + 'T12:00:00Z').getUTCDay() + 6) % 7; /* 0 = понедельник */
+    var mon = addDays(first, -wd), cells = [], weekend = keys.some(function(k){ return ((new Date(k + 'T12:00:00Z').getUTCDay() + 6) % 7) > 4; });
+    var cols = weekend ? 7 : 5;
+    for (var w = 0; w < 2; w++) for (var i = 0; i < cols; i++) cells.push(addDays(mon, w * 7 + i));
+    var open = cells.filter(function(k){ return slots[k]; });
+    if (open.indexOf(st.day) < 0) { st.day = open[0] || null; st.start = null; }
+    daysEl.style.gridTemplateColumns = 'repeat(' + cols + ',minmax(0,1fr))';
+    daysEl.innerHTML = cells.map(function(k){ var f = k + 'T12:00:00Z', on = !!slots[k];
+      return '<button type="button" role="option"' + (on ? ' data-d="' + k + '"' : ' disabled') + (k === st.day ? ' class="on" aria-selected="true"' : '') + '><small>' + fmt(f, { weekday: 'short' }) + '</small>' + fmt(f, { day: 'numeric', month: 'numeric' }) + '</button>'; }).join('');
+    msg1.innerHTML = '';
+    if (!st.day) { timesEl.innerHTML = ''; msg1.className = 'st-msg'; msg1.innerHTML = 'На этой и следующей неделе мест нет. Можно ' + calLink() + '.'; }
+    renderTimes();
+  }
+  function loadSlots(){
+    if (slots && Date.now() - slotsAt < 120000) { renderDays(); return; }
+    msg1.className = 'st-msg'; msg1.textContent = 'Загружаем свободное время…'; daysEl.innerHTML = ''; timesEl.innerHTML = ''; nextBtn.disabled = true;
+    fetch((window.API_BASE || '') + '/api/slots?tz=' + encodeURIComponent(TZ)).then(function(r){ if (!r.ok) throw 0; return r.json(); }).then(function(j){
+      slots = j.days || {}; slotsAt = Date.now(); renderDays();
+    }).catch(function(){ msg1.className = 'st-msg err'; msg1.innerHTML = 'Не удалось загрузить время. Можно ' + calLink() + '.'; });
+  }
+  function shOpen(scn){
+    st.scenario = scn || null; st.infra = []; st.data = st.cont = st.svc = st.db = null; msg2.textContent = ''; document.getElementById('lead-comment').value = '';
+    setStep(1); sh.hidden = false; void sh.offsetWidth; sh.classList.add('on'); app.style.overflow = 'hidden';
+    if (inTg && tg.BackButton) { try { tg.BackButton.show(); } catch(e){} }
+    loadSlots();
+  }
+  function shClose(){
+    sh.classList.remove('on'); setTimeout(function(){ sh.hidden = true; }, rm ? 0 : 300);
+    if (!cur) { app.style.overflow = ''; if (inTg && tg.BackButton) { try { tg.BackButton.hide(); } catch(e){} } }
+  }
+  function shBack(){ if (sh.hidden) return false; if (st.step === 2) setStep(1); else shClose(); return true; }
+  function chips(q){ return sh.querySelector('.chips[data-q="' + q + '"]'); }
+  function markChips(q){ var val = st[q]; [].forEach.call(chips(q).children, function(b){ var v = b.getAttribute('data-v') || b.textContent; b.classList.toggle('on', Array.isArray(val) ? val.indexOf(v) >= 0 : v === val); }); }
+  function send(){
+    var miss = [['scenario', !st.scenario], ['infra', !st.infra.length]].filter(function(m){ return m[1]; }).map(function(m){ return chips(m[0]).parentNode; });
+    if (miss.length) { /* подсветить незаполненные и прокрутить к первому */
+      miss.forEach(function(q){ q.classList.add('miss'); q.classList.remove('shake'); void q.offsetWidth; q.classList.add('shake'); });
+      var box = sh.querySelector('.sh-in'), r = miss[0].getBoundingClientRect(), top = sh.getBoundingClientRect().top;
+      box.scrollBy({ top: r.top - top - 70, behavior: 'smooth' });
+      hap('warning'); msg2.className = 'st-msg err'; msg2.textContent = miss.length > 1 ? 'Выберите, что нужно и где сейчас инфраструктура.' : (miss[0] === chips('scenario').parentNode ? 'Выберите, что нужно.' : 'Выберите, где сейчас инфраструктура.'); return; }
+    if (!inTg) { msg2.className = 'st-msg err'; msg2.innerHTML = 'Запись работает внутри Telegram: откройте мини-приложение у бота. Или ' + calLink() + '.'; return; }
+    sendBtn.disabled = true; sendBtn.textContent = 'Отправляем…'; msg2.textContent = '';
+    var body = JSON.stringify({ initData: tg.initData, start: st.start, scenario: st.scenario, infra: st.infra.join(', '), data: st.data, cont: st.cont, svc: st.svc, db: st.db, comment: document.getElementById('lead-comment').value, tz: CTZ, src: new URLSearchParams(location.search).get('src') || '' });
+    fetch((window.API_BASE || '') + '/api/lead', { method: 'POST', headers: { 'content-type': 'application/json' }, body: body })
+      .then(function(r){ return r.json().catch(function(){ return {}; }).then(function(j){ return { ok: r.ok, j: j }; }); })
+      .then(function(res){
+        if (res.ok && res.j.ok) {
+          document.getElementById('lead-done').textContent = 'Звонок: ' + whenText(st.start) + '. Команда напишет вам в Telegram в течение 2 часов, ссылку на звонок пришлём туда же.';
+          setStep(3); hap('success'); slots = null; if (window.nt) nt('lead_sent');
+        } else if (res.j.error === 'taken') {
+          hap('warning'); slots = null; st.start = null; setStep(1); loadSlots();
+          setTimeout(function(){ msg1.className = 'st-msg err'; msg1.textContent = 'Это время только что заняли. Выберите другое.'; }, 600);
+        } else { if (window.nt) nt('lead_err', res.j.error || 'http'); hap('error'); msg2.className = 'st-msg err'; msg2.textContent = 'Не получилось отправить. Попробуйте ещё раз или напишите в этот бот.'; }
+      })
+      .catch(function(){ hap('error'); msg2.className = 'st-msg err'; msg2.textContent = 'Нет связи. Попробуйте ещё раз.'; })
+      .then(function(){ sendBtn.disabled = false; sendBtn.textContent = 'Записаться'; });
+  }
+  document.addEventListener('click', function(e){
+    var c = e.target.closest('[data-cta]'); if (c) { hap('sel'); shOpen(c.getAttribute('data-scn')); return; }
+    if (sh.hidden) return;
+    var x = e.target.closest('[data-ext]'); if (x && inTg && tg.openLink) { e.preventDefault(); try { tg.openLink(x.href); } catch(err){ window.open(x.href); } return; }
+    if (e.target.closest('[data-sh-close]')) { shClose(); return; }
+    if (e.target.closest('[data-sh-back]')) { shBack(); return; }
+    var d = e.target.closest('[data-d]'); if (d) { st.day = d.getAttribute('data-d'); st.start = null; hap('sel'); renderDays(); return; }
+    var t = e.target.closest('[data-t]'); if (t) { st.start = t.getAttribute('data-t'); hap('sel'); renderTimes(); return; }
+    var ch = e.target.closest('.chips button'); if (ch) { var q = ch.parentNode.getAttribute('data-q'), v = ch.getAttribute('data-v') || ch.textContent;
+      if (ch.parentNode.hasAttribute('data-multi')) { /* мультивыбор; «Не знаю» исключает остальные */
+        var a = st[q] || [], k = a.indexOf(v);
+        if (k >= 0) a.splice(k, 1); else if (v === 'Не знаю') a = [v]; else { a = a.filter(function(x){ return x !== 'Не знаю'; }); a.push(v); }
+        st[q] = a;
+      } else st[q] = v;
+      var qq = ch.parentNode.parentNode; if (qq.classList.contains('miss') && (Array.isArray(st[q]) ? st[q].length : st[q])) { qq.classList.remove('miss'); if (!sh.querySelector('.q.miss')) msg2.textContent = ''; }
+      markChips(q); if (!sh.querySelector('.q.miss')) msg2.textContent = ''; else if (!st.scenario) msg2.textContent = 'Выберите, что нужно.'; else msg2.textContent = 'Выберите, где сейчас инфраструктура.'; hap('sel'); return; }
+  });
+  nextBtn.addEventListener('click', function(){ if (!st.start) return; document.getElementById('lead-when').textContent = whenText(st.start); ['scenario', 'infra', 'data', 'cont', 'svc', 'db'].forEach(markChips); setStep(2); });
+  sendBtn.addEventListener('click', function(){
+    if (inTg && tg.requestWriteAccess && st.scenario && st.infra.length) { try { tg.requestWriteAccess(function(){ send(); }); return; } catch(e){} } /* чтобы бот мог написать «получили» */
+    send();
+  });
+})();
+</script>
+
+</body>
+</html>

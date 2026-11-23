@@ -1,0 +1,5 @@
+User-agent: *
+Disallow: /api/
+Disallow: /app/
+
+Sitemap: https://nautilusops.dev/sitemap.xml
