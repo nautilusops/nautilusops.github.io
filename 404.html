@@ -89,6 +89,29 @@ a:focus-visible,.btn:focus-visible{outline:2px solid var(--accent);outline-offse
 <section class="doc"><div class="wrap"><h1>Такой страницы нет</h1><p class="lead">Адрес изменился или в нём опечатка.</p><p><a class="btn" href="/">На главную</a></p></div></section>
 </main>
 <footer class="ft"><div class="wrap"><b>Nautilus</b><span>DevOps-команда. Переезд, резерв, мультиклауд.</span><span class="sp"></span><a href="/">Главная</a><a href="/team/">Команда</a><a href="/blog/">Статьи</a><a href="mailto:letmeknow@nautilusops.dev">letmeknow@nautilusops.dev</a><a href="https://t.me/NautilusOpsBot?start=site" target="_blank" rel="noopener">Telegram</a><span>2026</span></div></footer>
-<script>(function(){var A='https://api.nautilusops.dev:8444';function s(ev,arg){try{var d=JSON.stringify({ev:ev,src:'site_nautilus',arg:String(arg||'').slice(0,40),plat:'web',lang:(navigator.language||'').slice(0,8),sid:(window.__sid=window.__sid||Math.random().toString(36).slice(2,12))});if(navigator.sendBeacon)navigator.sendBeacon(A+'/api/ev',new Blob([d],{type:'text/plain'}));else fetch(A+'/api/ev',{method:'POST',body:d,keepalive:true});}catch(e){}}s('open',location.pathname);document.addEventListener('click',function(e){var a=e.target.closest&&e.target.closest('[data-book],a[href^="https://cal.com"]');if(a)s('cta',location.pathname);});})();</script>
+<script>(function(){var A='https://api.nautilusops.dev:8444';
+var L=location,N=navigator,ls,ss;try{ls=localStorage;ss=sessionStorage;}catch(e){}
+function g(t,k){try{return t?t.getItem(k):null}catch(e){return null}}
+function p(t,k,v){try{if(t)t.setItem(k,v)}catch(e){}}
+function rnd(){return Math.random().toString(36).slice(2,12)}
+var q=new URLSearchParams(L.search),KEYS=['s','utm_source','utm_medium','utm_campaign','utm_content','utm_term'];
+var m=(q.get('s')||q.get('utm_campaign')||q.get('utm_source')||'').replace(/[^A-Za-z0-9_-]/g,'').slice(0,40);
+if(m==='team')p(ls,'nt_team','1');if(g(ls,'nt_team'))m='team';if(m)p(ss,'nt_lbl',m);
+var lbl=m||g(ss,'nt_lbl')||'',vid=g(ls,'nt_vid'),sid=g(ss,'nt_sid');
+if(!vid){vid=rnd();p(ls,'nt_vid',vid);}if(!sid){sid=rnd();p(ss,'nt_sid',sid);}
+var ref='';try{var h=new URL(document.referrer).hostname;if(h&&h!==L.hostname)ref=h.slice(0,60);}catch(e){}
+var bot=N.webdriver||/bot|crawl|spider|slurp|headless|lighthouse|preview/i.test(N.userAgent||'');
+if(KEYS.some(function(k){return q.has(k)})){KEYS.forEach(function(k){q.delete(k)});var r=q.toString();
+try{history.replaceState(history.state,'',L.pathname+(r?'?'+r:'')+L.hash)}catch(e){}}
+var t0=Date.now(),hid=0;
+function s(ev,arg){try{var d=JSON.stringify({ev:ev,src:'site_nautilus',arg:String(arg==null?'':arg).slice(0,40),plat:bot?'bot':'web',
+lang:(N.language||'').slice(0,8),sid:sid,vid:vid,ref:ref,lbl:lbl});
+if(N.sendBeacon)N.sendBeacon(A+'/api/ev',new Blob([d],{type:'text/plain'}));else fetch(A+'/api/ev',{method:'POST',body:d,keepalive:true});}catch(e){}}
+s('open',L.pathname);
+document.addEventListener('click',function(e){var a=e.target.closest&&e.target.closest('a,[data-book]');if(!a)return;
+if(a.closest('[data-book],a[href^="https://cal.com"]'))return s('cta',L.pathname);
+if(/t\.me\/NautilusOpsBot/.test(a.href||'')){if(lbl&&lbl!=='team')a.href=a.href.replace(/start=site\b/,'start=site-'+lbl);s('tg',L.pathname);}},true);
+document.addEventListener('visibilitychange',function(){if(document.visibilityState==='hidden'&&!hid){hid=1;s('hide',Math.round((Date.now()-t0)/1000));}});
+})();</script>
 </body>
 </html>
